@@ -1,0 +1,9 @@
+I direct port from the Vega County Unemployment example
+
+URL: https://vega.github.io/vega/examples/county-unemployment/
+
+
+Data is exported and placed in a single JSON file which overrides the URL set at load.
+
+
+This example shows how to include multiple data objects and also demonstrates that some Vega renderings can be extremely slow with the integrated rendering engine.

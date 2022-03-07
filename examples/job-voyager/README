@@ -1,0 +1,7 @@
+I direct port from the Vega Job Voyager Example
+
+URL: https://vega.github.io/vega/examples/job-voyager/
+
+Data is exported and placed in a single JSON file which overrides the dataset at load.
+
+This example shows how to include a single data objects.

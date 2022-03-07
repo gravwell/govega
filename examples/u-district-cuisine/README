@@ -1,0 +1,7 @@
+I direct port from the Vega U-District Cuisine Example
+
+URL: https://vega.github.io/vega/examples/u-district-cuisine/
+
+Data is exported and placed in a single JSON file which overrides the dataset at load.
+
+This example shows how to include data directly into the spec.
