@@ -38,19 +38,26 @@ function makesvg(spec, data) {
     // Create the view
     const view = new vega.View(vega.parse(specobj), { renderer: "none" });
 
+    // If cxt (canvas context) is set, use Canvas, otherwise SVG
+    const renderPromise = cxt
+      ? view.toCanvas(1, { externalContext: cxt })
+      : view.toSVG();
+
     // Render the view
-    view
-      .toSVG()
-      .then((svgResult) => {
-        set(svgResult);
+    renderPromise
+      .then((result) => {
+        log("SUCCESS");
+        success(result);
       })
       .catch((err) => {
+        log("PROMISE CATCH", err);
         failure(err.toString());
       })
       .finally(() => {
         view.finalize();
       });
   } catch (err) {
+    log("TRY/CATCH");
     failure(err.toString());
   }
   return true; //return true as a clean completion schedule

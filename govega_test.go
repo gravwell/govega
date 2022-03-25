@@ -48,7 +48,7 @@ func TestBadSpec(t *testing.T) {
 	}
 	ctx, cf := context.WithTimeout(context.Background(), time.Second)
 	defer cf()
-	if svg, err := vm.Render(spec, data, ctx); err == nil {
+	if svg, err := vm.RenderSVG(spec, data, ctx); err == nil {
 		t.Fatal(err)
 	} else if svg != nil {
 		t.Fatal("returned SVG is not nil after bad spec")
@@ -73,7 +73,7 @@ func TestGoodSpecs(t *testing.T) {
 		ts := time.Now()
 		//some of these can take some time, make the timeout large so tests don't fail on slow machines
 		ctx, cf := context.WithTimeout(context.Background(), 30*time.Second)
-		if svg, err := vm.Render(spec, data, ctx); err != nil {
+		if svg, err := vm.RenderSVG(spec, data, ctx); err != nil {
 			t.Fatalf("Failed to render %q - %v", s, err)
 		} else if svg == nil {
 			t.Fatal("returned SVG is nil")

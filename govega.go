@@ -9,12 +9,16 @@
 package govega
 
 import (
+	"bytes"
 	"context"
 	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"sync"
+
+	"image/png"
 
 	"github.com/dop251/goja"
 	"github.com/dop251/goja/parser"
@@ -46,6 +50,7 @@ func New() (*VegaVM, error) {
 	gvm := goja.New()
 	for _, s := range jsfiles {
 		bb, err := js.ReadFile(s)
+		log.Print(s)
 		if err != nil {
 			return nil, fmt.Errorf("Failed to open embedded file %q %w", s, err)
 		}
@@ -64,20 +69,32 @@ func New() (*VegaVM, error) {
 			done: make(chan error, 1),
 		},
 	}
-	if err := vm.gvm.Set("set", vm.res.fill); err != nil {
-		return nil, fmt.Errorf("failed to set fill function %w", err)
-	} else if err = vm.gvm.Set("failure", vm.res.failure); err != nil {
-		return nil, fmt.Errorf("failed to set fill function %w", err)
-	} else if err = vm.gvm.ExportTo(vm.gvm.Get("makesvg"), &vm.fn); err != nil {
+
+	if err := vm.gvm.Set("log", log.Println); err != nil {
+		return nil, fmt.Errorf("failed to set log function %w", err)
+	}
+
+	if err := vm.gvm.Set("success", vm.res.success); err != nil {
+		return nil, fmt.Errorf("failed to set success function %w", err)
+	}
+
+	if err := vm.gvm.Set("failure", vm.res.failure); err != nil {
+		return nil, fmt.Errorf("failed to set failure function %w", err)
+	}
+
+	if err := vm.gvm.ExportTo(vm.gvm.Get("makesvg"), &vm.fn); err != nil {
 		return nil, fmt.Errorf("Failed to export stub makesvg function %w", err)
-	} else if vm.fn == nil {
+	}
+
+	if vm.fn == nil {
 		return nil, fmt.Errorf("failed to get makesvg javascript function")
 	}
+
 	return vm, nil
 }
 
-// Render accepts a spe
-func (vm *VegaVM) Render(spec []byte, data map[string]interface{}, ctx context.Context) (svg []byte, err error) {
+// RenderSVG accepts a spe
+func (vm *VegaVM) RenderSVG(spec []byte, data map[string]interface{}, ctx context.Context) (svg []byte, err error) {
 	var res string
 	var djson string
 	if len(data) > 0 {
@@ -87,6 +104,12 @@ func (vm *VegaVM) Render(spec []byte, data map[string]interface{}, ctx context.C
 		}
 		djson = string(d)
 	}
+
+	// Nil canvas context implies we want an SVG
+	if err := vm.gvm.Set("cxt", nil); err != nil {
+		return nil, fmt.Errorf("failed to set ctx object %w", err)
+	}
+
 	vm.Lock()
 	defer vm.Unlock()
 	r := vm.fn(string(spec), djson)
@@ -100,14 +123,59 @@ func (vm *VegaVM) Render(spec []byte, data map[string]interface{}, ctx context.C
 	return
 }
 
+func (vm *VegaVM) RenderPNG(spec []byte, data map[string]interface{}, ctx context.Context) (svg []byte, err error) {
+	var djson string
+	if len(data) > 0 {
+		d, err := json.Marshal(data)
+		if err != nil {
+			return nil, err
+		}
+		djson = string(d)
+	}
+	vm.Lock()
+	defer vm.Unlock()
+
+	vm.gvm.SetFieldNameMapper(goja.UncapFieldNameMapper())
+
+	c := mkCanvas()
+
+	log.Println(c)
+
+	if err := vm.gvm.Set("cxt", c); err != nil {
+		return nil, fmt.Errorf("failed to set ctx object %w", err)
+	}
+
+	r := vm.fn(string(spec), djson)
+	if r != `true` {
+		log.Println("Fn return value", r)
+		err = errors.New(r)
+		return
+	}
+
+	log.Println("Another one", r)
+
+	// Response will be nil
+	_, err = vm.res.wait(ctx)
+	if err != nil {
+		return
+	}
+
+	img := c.GetImageData(0, 0, c.Width(), c.Height())
+	w := new(bytes.Buffer)
+	err = png.Encode(w, img)
+	svg = w.Bytes()
+
+	return
+}
+
 type resp struct {
 	done chan error
 	v    string
 }
 
-func (r *resp) fill(v interface{}) {
+func (r *resp) success(v interface{}) {
 	if v == nil {
-		r.done <- errors.New("nil")
+		r.done <- nil
 		return
 	} else if val, ok := v.(string); !ok {
 		r.done <- fmt.Errorf("invalid response type %T", v)
@@ -120,7 +188,7 @@ func (r *resp) fill(v interface{}) {
 
 func (r *resp) failure(v interface{}) {
 	if v == nil {
-		r.done <- errors.New("nil")
+		r.done <- errors.New("Failure message is nil")
 		return
 	} else if val, ok := v.(string); !ok {
 		r.done <- fmt.Errorf("invalid response type %T", v)

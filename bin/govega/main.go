@@ -4,50 +4,137 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"io/ioutil"
 	"log"
+	"os"
 
 	"github.com/gravwell/govega"
 )
 
 var (
-	vegaSpec = flag.String("vega-spec", "", "Path to vega specification file")
-	data     = flag.String("data", "", "Optional data JSON file to load for vega")
-	svgOut   = flag.String("output", "", "Path to output SVG file")
+	vegaSpecFilename = flag.String("spec", "-", "Path to vega specification file (or - for stdin)")
+	dataFilename     = flag.String("data", "", "Optional data JSON file to load for vega")
+	format           = flag.String("format", "svg", "Output image format (either svg or png)")
+	outputFilename   = flag.String("output", "", "Path to output rendered spec (or omit for stdout)")
 )
+
+type renderFunc = func(specBytes []byte, data map[string]interface{}) (svg []byte, err error)
 
 func main() {
 	flag.Parse()
-	if *vegaSpec == `` {
-		log.Fatal("missing -vega-spec value")
-	} else if *svgOut == `` {
-		log.Fatal("missing -output value")
-	}
-	specBytes, err := ioutil.ReadFile(*vegaSpec)
+
+	specFile, err := getSpecFile()
 	if err != nil {
-		log.Fatal("Failed to load spec file", *vegaSpec, err)
+		log.Fatal(err)
+	}
+	defer specFile.Close()
+
+	outFile, err := getOutputFile()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer outFile.Close()
+
+	var render renderFunc
+	switch *format {
+	case "svg":
+		render = renderSvg
+	case "png":
+		render = renderPng
+	default:
+		log.Fatal("Unknown output format: ", *format)
+	}
+
+	data, err := parseDataFile()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	specBytes, err := ioutil.ReadAll(specFile)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	renderResult, err := render(specBytes, data)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if _, err := outFile.Write(renderResult); err != nil {
+		log.Fatalf("Failed to write %q %v\n", *outputFilename, err)
+	}
+}
+
+func getSpecFile() (inFile *os.File, err error) {
+	switch *vegaSpecFilename {
+	case "":
+		err = fmt.Errorf("missing -vega-spec value")
+	case "-":
+		inFile = os.Stdin
+	default:
+		inFile, err = os.Open(*vegaSpecFilename)
+		if err != nil {
+			err = fmt.Errorf("Unable to open vega spec: %v", err)
+		}
+	}
+	return
+}
+
+func getOutputFile() (outFile *os.File, err error) {
+	outFile = os.Stdout
+	if *outputFilename != `` {
+		outFile, err = os.OpenFile(*outputFilename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0660)
+		if err != nil {
+			err = fmt.Errorf("Unable to open output file: %v", err)
+		}
+	}
+	return
+}
+
+func parseDataFile() (dataObj map[string]interface{}, err error) {
+	if *dataFilename != `` {
+		var dataBytes []byte
+		dataBytes, err = ioutil.ReadFile(*dataFilename)
+		if err != nil {
+			err = fmt.Errorf("Unable to read data file: %v", err)
+			return
+		}
+
+		err = json.Unmarshal(dataBytes, &dataObj)
+		if err != nil {
+			err = fmt.Errorf("Unable to parse data file as JSON: %v", err)
+		}
+	}
+	return
+}
+
+func renderSvg(specBytes []byte, data map[string]interface{}) (svg []byte, err error) {
+	var vm *govega.VegaVM
+	vm, err = govega.New()
+	if err != nil {
+		err = fmt.Errorf("Unable to create govega VM: %v", err)
 		return
 	}
-	var dataObj map[string]interface{}
-	if *data != `` {
-		dataBytes, err := ioutil.ReadFile(*data)
-		if err != nil {
-			log.Fatal("Failed to load datafile")
-		}
-		if err := json.Unmarshal(dataBytes, &dataObj); err != nil {
-			log.Fatal("Failed to parse datafile")
-		}
-	}
-	vm, err := govega.New()
+	ctx := context.Background()
+	svg, err = vm.RenderSVG(specBytes, data, ctx)
 	if err != nil {
-		log.Fatal("Failed to build govega VM", err)
+		err = fmt.Errorf("Unable to render vega spec as SVG: %v", err)
+	}
+	return
+}
+
+func renderPng(specBytes []byte, data map[string]interface{}) (png []byte, err error) {
+	var vm *govega.VegaVM
+	vm, err = govega.New()
+	if err != nil {
+		err = fmt.Errorf("Unable to create govega VM: %v", err)
+		return
 	}
 	ctx := context.Background()
-	svg, err := vm.Render(specBytes, dataObj, ctx)
+	png, err = vm.RenderPNG(specBytes, data, ctx)
 	if err != nil {
-		log.Fatalf("Failed to render %q %v\n", *vegaSpec, err)
+		err = fmt.Errorf("Unable to render vega spec as PNG: %v", err)
 	}
-	if err := ioutil.WriteFile(*svgOut, svg, 0660); err != nil {
-		log.Fatalf("Failed to write %q %v\n", *svgOut, err)
-	}
+	return
 }
