@@ -1,9 +1,20 @@
 package govega
 
 import (
+	"embed"
+	"fmt"
+
 	"github.com/tfriedel6/canvas"
 	"github.com/tfriedel6/canvas/backend/softwarebackend"
 )
+
+//go:embed "fonts/Roboto-Regular.ttf"
+var fonts embed.FS
+
+// The first font in the list will be the default font
+var fontFiles = []string{
+	"fonts/Roboto-Regular.ttf",
+}
 
 type mycanvas struct {
 	*canvas.Canvas
@@ -34,14 +45,25 @@ type mycanvas struct {
 	TextBaseline             string
 }
 
-func mkCanvas() *mycanvas {
+func mkCanvas() (*mycanvas, error) {
 	s := softwarebackend.New(500, 500)
 	c := canvas.New(s)
 
-	font, _ := c.LoadFont("/home/michaelwisely/code/govega/bin/govega/MigantyScript.ttf")
-	c.SetFont(font, 16)
+	for _, s := range fontFiles {
+		fontBytes, err := fonts.ReadFile(s)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to open embedded font file %q %w", s, err)
+		}
 
-	return &mycanvas{
-		Canvas: c,
+		if _, err := c.LoadFont(fontBytes); err != nil {
+			return nil, fmt.Errorf("Failed to parse font %q %w", s, err)
+		}
+
 	}
+
+	// The font that's loaded first is set as the default font.
+	// Passing nil indicates we want to use the default
+	c.SetFont(nil, 12)
+
+	return &mycanvas{Canvas: c}, nil
 }

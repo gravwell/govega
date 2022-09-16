@@ -123,7 +123,7 @@ func (vm *VegaVM) RenderSVG(spec []byte, data map[string]interface{}, ctx contex
 	return
 }
 
-func (vm *VegaVM) RenderPNG(spec []byte, data map[string]interface{}, ctx context.Context) (svg []byte, err error) {
+func (vm *VegaVM) RenderPNG(spec []byte, data map[string]interface{}, ctx context.Context) ([]byte, error) {
 	var djson string
 	if len(data) > 0 {
 		d, err := json.Marshal(data)
@@ -137,9 +137,10 @@ func (vm *VegaVM) RenderPNG(spec []byte, data map[string]interface{}, ctx contex
 
 	vm.gvm.SetFieldNameMapper(goja.UncapFieldNameMapper())
 
-	c := mkCanvas()
-
-	log.Println(c)
+	c, err := mkCanvas()
+	if err != nil {
+		return nil, fmt.Errorf("Failed to create canvas %w", err)
+	}
 
 	if err := vm.gvm.Set("cxt", c); err != nil {
 		return nil, fmt.Errorf("failed to set ctx object %w", err)
@@ -147,25 +148,26 @@ func (vm *VegaVM) RenderPNG(spec []byte, data map[string]interface{}, ctx contex
 
 	r := vm.fn(string(spec), djson)
 	if r != `true` {
-		log.Println("Fn return value", r)
-		err = errors.New(r)
-		return
+		return nil, fmt.Errorf(`Expected "true" as return value. Got: %+v`, r)
 	}
 
-	log.Println("Another one", r)
-
 	// Response will be nil
-	_, err = vm.res.wait(ctx)
+	_, err := vm.res.wait(ctx)
 	if err != nil {
-		return
+		return nil, fmt.Errorf(`Failed to wait for response "true" as return value. Got: %+v`, err)
 	}
 
 	img := c.GetImageData(0, 0, c.Width(), c.Height())
 	w := new(bytes.Buffer)
-	err = png.Encode(w, img)
-	svg = w.Bytes()
+	err := png.Encode(w, img)
+	if err != nil {
+		return nil, err
+	}
 
-	return
+
+	svg = 
+
+	return w.Bytes(), nil
 }
 
 type resp struct {
