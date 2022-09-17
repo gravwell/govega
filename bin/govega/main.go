@@ -111,7 +111,7 @@ func parseDataFile() (dataObj map[string]interface{}, err error) {
 
 func renderSvg(specBytes []byte, data map[string]interface{}) (svg []byte, err error) {
 	var vm *govega.VegaVM
-	vm, err = govega.New()
+	vm, err = govega.New(govega.Config{})
 	if err != nil {
 		err = fmt.Errorf("Unable to create govega VM: %v", err)
 		return
@@ -126,7 +126,7 @@ func renderSvg(specBytes []byte, data map[string]interface{}) (svg []byte, err e
 
 func renderPng(specBytes []byte, data map[string]interface{}) (png []byte, err error) {
 	var vm *govega.VegaVM
-	vm, err = govega.New()
+	vm, err = govega.New(govega.Config{PNGResolution: govega.Resolution{Width: 800, Height: 600}})
 	if err != nil {
 		err = fmt.Errorf("Unable to create govega VM: %v", err)
 		return

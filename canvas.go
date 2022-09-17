@@ -45,8 +45,8 @@ type mycanvas struct {
 	TextBaseline             string
 }
 
-func mkCanvas() (*mycanvas, error) {
-	s := softwarebackend.New(500, 500)
+func mkCanvas(w, h int) (*mycanvas, error) {
+	s := softwarebackend.New(w, h)
 	c := canvas.New(s)
 
 	for _, s := range fontFiles {
@@ -64,6 +64,10 @@ func mkCanvas() (*mycanvas, error) {
 	// The font that's loaded first is set as the default font.
 	// Passing nil indicates we want to use the default
 	c.SetFont(nil, 12)
+
+	//init the fill style to be a white background
+	//if we don't do this its possible to panic by calling fill without setting the fill style
+	//c.SetFillStyle("#FFFFFF")
 
 	return &mycanvas{Canvas: c}, nil
 }

@@ -23,6 +23,8 @@ import (
 const dataFileName = `data.json`
 const badSpec = `examples/garbage.json`
 
+var pngHeader = []byte{137, 80, 78, 71, 13, 10, 26, 10}
+
 var testFiles = []string{
 	`examples/bar-chart.vg.json`,
 	`examples/grouped-bar-chart.vg.json`,
@@ -32,7 +34,7 @@ var testFiles = []string{
 }
 
 func TestNew(t *testing.T) {
-	if _, err := New(); err != nil {
+	if _, err := New(Config{}); err != nil {
 		t.Error(err)
 	}
 }
@@ -42,7 +44,7 @@ func TestBadSpec(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	vm, err := New()
+	vm, err := New(Config{})
 	if err != nil {
 		t.Error(err)
 	}
@@ -60,8 +62,8 @@ func TestBadSpec(t *testing.T) {
 	}
 }
 
-func TestGoodSpecs(t *testing.T) {
-	vm, err := New()
+func TestGoodSpecsSVG(t *testing.T) {
+	vm, err := New(Config{})
 	if err != nil {
 		t.Error(err)
 	}
@@ -79,6 +81,33 @@ func TestGoodSpecs(t *testing.T) {
 			t.Fatal("returned SVG is nil")
 		} else if !bytes.HasPrefix(svg, []byte(`<svg`)) {
 			t.Fatal("returned value not an SVG?")
+		}
+		cf()
+		if testing.Verbose() {
+			fmt.Printf("%q took %v\n", s, time.Since(ts))
+		}
+	}
+}
+
+func TestGoodSpecsPNG(t *testing.T) {
+	vm, err := New(Config{})
+	if err != nil {
+		t.Error(err)
+	}
+	for _, s := range testFiles {
+		spec, data, err := loadSpecAndData(s)
+		if err != nil {
+			t.Fatalf("Failed to load %q %v", s, err)
+		}
+		ts := time.Now()
+		//some of these can take some time, make the timeout large so tests don't fail on slow machines
+		ctx, cf := context.WithTimeout(context.Background(), 30*time.Second)
+		if png, err := vm.RenderPNG(spec, data, ctx); err != nil {
+			t.Fatalf("Failed to render %q - %v", s, err)
+		} else if png == nil {
+			t.Fatal("returned SVG is nil")
+		} else if !bytes.HasPrefix(png, pngHeader) {
+			t.Fatal("returned value not a PNG?")
 		}
 		cf()
 		if testing.Verbose() {

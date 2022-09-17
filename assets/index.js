@@ -46,18 +46,15 @@ function makesvg(spec, data) {
     // Render the view
     renderPromise
       .then((result) => {
-        log("SUCCESS");
         success(result);
       })
       .catch((err) => {
-        log("PROMISE CATCH", err);
         failure(err.toString());
       })
       .finally(() => {
         view.finalize();
       });
   } catch (err) {
-    log("TRY/CATCH");
     failure(err.toString());
   }
   return true; //return true as a clean completion schedule
