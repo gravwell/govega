@@ -159,10 +159,8 @@ func (vm *VegaVM) RenderPNG(spec []byte, data map[string]interface{}, ctx contex
 	c, err := mkCanvas(vm.PNGResolution.Width, vm.PNGResolution.Height)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to create canvas %w", err)
-	}
-
-	if err := vm.gvm.Set("cxt", c); err != nil {
-		return nil, fmt.Errorf("failed to set ctx object %w", err)
+	} else if err = initCanvas(vm.gvm, c); err != nil {
+		return nil, err
 	}
 
 	r := vm.fn(string(spec), djson)

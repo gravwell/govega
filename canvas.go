@@ -4,6 +4,7 @@ import (
 	"embed"
 	"fmt"
 
+	"github.com/dop251/goja"
 	"github.com/tfriedel6/canvas"
 	"github.com/tfriedel6/canvas/backend/softwarebackend"
 )
@@ -67,7 +68,25 @@ func mkCanvas(w, h int) (*mycanvas, error) {
 
 	//init the fill style to be a white background
 	//if we don't do this its possible to panic by calling fill without setting the fill style
-	//c.SetFillStyle("#FFFFFF")
+	c.SetFillStyle("#FFFFFF")
 
 	return &mycanvas{Canvas: c}, nil
+}
+
+func initCanvas(vm *goja.Runtime, c *mycanvas) (err error) {
+	v := vm.ToValue(c)
+	if v == nil {
+		return fmt.Errorf("failed to create value out of canvas")
+	}
+	obj := v.ToObject(vm)
+	if obj == nil {
+		return fmt.Errorf("failed to create object out of value")
+	}
+
+	//TODO go gin up the overrides for getters and setters where appropriate
+
+	if err = vm.Set("cxt", obj); err != nil {
+		err = fmt.Errorf("Failed to set cxt object %w", err)
+	}
+	return
 }

@@ -9,6 +9,8 @@ require (
 	github.com/go-sourcemap/sourcemap v2.1.3+incompatible // indirect
 	github.com/golang/freetype v0.0.0-20170609003504-e2365dfdc4a0 // indirect
 	github.com/tfriedel6/canvas v0.12.1 // indirect
-	golang.org/x/image v0.0.0-20200119044424-58c23975cae1 // indirect
+	golang.org/x/image v0.0.0-20200801110659-972c09e46d76 // indirect
 	golang.org/x/text v0.3.6 // indirect
 )
+
+replace github.com/tfriedel6/canvas => /home/kris/githubwork/canvas
