@@ -19,7 +19,7 @@ var (
 	outputFilename   = flag.String("output", "", "Path to output rendered spec (or omit for stdout)")
 )
 
-type renderFunc = func(specBytes []byte, data map[string]interface{}) (svg []byte, err error)
+type renderFunc = func(specBytes []byte, data interface{}) (svg []byte, err error)
 
 func main() {
 	flag.Parse()
@@ -56,7 +56,11 @@ func main() {
 		log.Fatal(err)
 	}
 
-	renderResult, err := render(specBytes, data)
+	var dataobj interface{}
+	if len(data) > 0 {
+		dataobj = data
+	}
+	renderResult, err := render(specBytes, dataobj)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -92,7 +96,7 @@ func getOutputFile() (outFile *os.File, err error) {
 	return
 }
 
-func parseDataFile() (dataObj map[string]interface{}, err error) {
+func parseDataFile() (dataObj json.RawMessage, err error) {
 	if *dataFilename != `` {
 		var dataBytes []byte
 		dataBytes, err = ioutil.ReadFile(*dataFilename)
@@ -109,7 +113,7 @@ func parseDataFile() (dataObj map[string]interface{}, err error) {
 	return
 }
 
-func renderSvg(specBytes []byte, data map[string]interface{}) (svg []byte, err error) {
+func renderSvg(specBytes []byte, data interface{}) (svg []byte, err error) {
 	var vm *govega.VegaVM
 	vm, err = govega.New(govega.Config{})
 	if err != nil {
@@ -124,9 +128,9 @@ func renderSvg(specBytes []byte, data map[string]interface{}) (svg []byte, err e
 	return
 }
 
-func renderPng(specBytes []byte, data map[string]interface{}) (png []byte, err error) {
+func renderPng(specBytes []byte, data interface{}) (png []byte, err error) {
 	var vm *govega.VegaVM
-	vm, err = govega.New(govega.Config{PNGResolution: govega.Resolution{Width: 800, Height: 600}})
+	vm, err = govega.New(govega.Config{PNGResolution: govega.Resolution{Width: 1024, Height: 768}})
 	if err != nil {
 		err = fmt.Errorf("Unable to create govega VM: %v", err)
 		return

@@ -1,4 +1,4 @@
-function makesvg(spec, data) {
+function makesvg(spec, data, width, height) {
   try {
     // If it's a string, parse it. Otherwise it's probably an object and we're good to go.
     const specobj =
@@ -34,7 +34,12 @@ function makesvg(spec, data) {
         }
       }
     }
-
+    if (width > 0) {
+      specobj.width = width
+    }
+    if (height > 0) {
+      specobj.height = height
+    }
     // Create the view
     const view = new vega.View(vega.parse(specobj), { renderer: "none" });
 

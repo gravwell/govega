@@ -57,7 +57,7 @@ type VegaVM struct {
 	Config
 	gvm *goja.Runtime
 	res resp
-	fn  func(string, string) string
+	fn  func(string, string, int, int) string
 }
 
 // New creates a new VegaVM and loads the appropriate javascript files.
@@ -92,6 +92,10 @@ func New(c Config) (*VegaVM, error) {
 	if err := vm.gvm.Set("log", c.Logger); err != nil {
 		return nil, fmt.Errorf("failed to set log function %w", err)
 	}
+	var con console
+	if err := vm.gvm.Set("console", con); err != nil {
+		return nil, fmt.Errorf("failed to set console object %w", err)
+	}
 
 	if err := vm.gvm.Set("success", vm.res.success); err != nil {
 		return nil, fmt.Errorf("failed to set success function %w", err)
@@ -113,10 +117,10 @@ func New(c Config) (*VegaVM, error) {
 }
 
 // RenderSVG accepts a spe
-func (vm *VegaVM) RenderSVG(spec []byte, data map[string]interface{}, ctx context.Context) (svg []byte, err error) {
+func (vm *VegaVM) RenderSVG(spec []byte, data interface{}, ctx context.Context) (svg []byte, err error) {
 	var res string
 	var djson string
-	if len(data) > 0 {
+	if data != nil {
 		d, err := json.Marshal(data)
 		if err != nil {
 			return nil, err
@@ -131,7 +135,7 @@ func (vm *VegaVM) RenderSVG(spec []byte, data map[string]interface{}, ctx contex
 
 	vm.Lock()
 	defer vm.Unlock()
-	r := vm.fn(string(spec), djson)
+	r := vm.fn(string(spec), djson, 0, 0)
 	if r != `true` {
 		err = errors.New(r)
 		return
@@ -142,9 +146,9 @@ func (vm *VegaVM) RenderSVG(spec []byte, data map[string]interface{}, ctx contex
 	return
 }
 
-func (vm *VegaVM) RenderPNG(spec []byte, data map[string]interface{}, ctx context.Context) ([]byte, error) {
+func (vm *VegaVM) RenderPNG(spec []byte, data interface{}, ctx context.Context) ([]byte, error) {
 	var djson string
-	if len(data) > 0 {
+	if data != nil {
 		d, err := json.Marshal(data)
 		if err != nil {
 			return nil, err
@@ -163,7 +167,8 @@ func (vm *VegaVM) RenderPNG(spec []byte, data map[string]interface{}, ctx contex
 		return nil, err
 	}
 
-	r := vm.fn(string(spec), djson)
+	width, height := vm.Config.PNGResolution.Width, vm.Config.PNGResolution.Height
+	r := vm.fn(string(spec), djson, width, height)
 	if r != `true` {
 		return nil, fmt.Errorf(`Expected "true" as return value. Got: %+v`, r)
 	}
@@ -173,7 +178,7 @@ func (vm *VegaVM) RenderPNG(spec []byte, data map[string]interface{}, ctx contex
 		return nil, fmt.Errorf(`Failed to wait for response "true" as return value. Got: %+v`, err)
 	}
 
-	img := c.GetImageData(0, 0, c.Width(), c.Height())
+	img := c.GetImageData(0, 0, c.Canvas.Width(), c.Canvas.Height())
 	w := new(bytes.Buffer)
 	if err := png.Encode(w, img); err != nil {
 		return nil, err
@@ -253,4 +258,12 @@ func (r Resolution) Validate() (err error) {
 func (r Resolution) IsZero() bool {
 	//if either is, it's worthless, consider it zero
 	return r.Width == 0 || r.Height == 0
+}
+
+type console struct {
+	logger func(...interface{})
+}
+
+func (c console) Log(vals ...interface{}) {
+	c.logger(vals...)
 }
