@@ -24,6 +24,11 @@ import (
 	"github.com/dop251/goja/parser"
 )
 
+const (
+	defaultWidth  = 800
+	defaultHeight = 600
+)
+
 //go:embed "assets/polyfill.min.js"
 //go:embed "assets/runtime.min.js"
 //go:embed "assets/vega.min.js"
@@ -37,20 +42,33 @@ var jsfiles = []string{
 	"assets/index.js",
 }
 
+type Resolution struct {
+	Width  int
+	Height int
+}
+
+type Config struct {
+	Logger        func(...interface{})
+	PNGResolution Resolution //not used in SVG rendering
+}
+
 type VegaVM struct {
 	sync.Mutex
+	Config
 	gvm *goja.Runtime
 	res resp
-	fn  func(string, string) string
+	fn  func(string, string, int, int) string
 }
 
 // New creates a new VegaVM and loads the appropriate javascript files.
 // VegaVMs are safe for concurrent use but are not parallel.
-func New() (*VegaVM, error) {
+func New(c Config) (*VegaVM, error) {
+	if err := c.Validate(); err != nil {
+		return nil, err
+	}
 	gvm := goja.New()
 	for _, s := range jsfiles {
 		bb, err := js.ReadFile(s)
-		log.Print(s)
 		if err != nil {
 			return nil, fmt.Errorf("Failed to open embedded file %q %w", s, err)
 		}
@@ -64,14 +82,19 @@ func New() (*VegaVM, error) {
 	}
 
 	vm := &VegaVM{
-		gvm: gvm,
+		Config: c,
+		gvm:    gvm,
 		res: resp{
 			done: make(chan error, 1),
 		},
 	}
 
-	if err := vm.gvm.Set("log", log.Println); err != nil {
+	if err := vm.gvm.Set("log", c.Logger); err != nil {
 		return nil, fmt.Errorf("failed to set log function %w", err)
+	}
+	var con console
+	if err := vm.gvm.Set("console", con); err != nil {
+		return nil, fmt.Errorf("failed to set console object %w", err)
 	}
 
 	if err := vm.gvm.Set("success", vm.res.success); err != nil {
@@ -94,10 +117,10 @@ func New() (*VegaVM, error) {
 }
 
 // RenderSVG accepts a spe
-func (vm *VegaVM) RenderSVG(spec []byte, data map[string]interface{}, ctx context.Context) (svg []byte, err error) {
+func (vm *VegaVM) RenderSVG(spec []byte, data interface{}, ctx context.Context) (svg []byte, err error) {
 	var res string
 	var djson string
-	if len(data) > 0 {
+	if data != nil {
 		d, err := json.Marshal(data)
 		if err != nil {
 			return nil, err
@@ -112,7 +135,7 @@ func (vm *VegaVM) RenderSVG(spec []byte, data map[string]interface{}, ctx contex
 
 	vm.Lock()
 	defer vm.Unlock()
-	r := vm.fn(string(spec), djson)
+	r := vm.fn(string(spec), djson, 0, 0)
 	if r != `true` {
 		err = errors.New(r)
 		return
@@ -123,9 +146,9 @@ func (vm *VegaVM) RenderSVG(spec []byte, data map[string]interface{}, ctx contex
 	return
 }
 
-func (vm *VegaVM) RenderPNG(spec []byte, data map[string]interface{}, ctx context.Context) ([]byte, error) {
+func (vm *VegaVM) RenderPNG(spec []byte, data interface{}, ctx context.Context) ([]byte, error) {
 	var djson string
-	if len(data) > 0 {
+	if data != nil {
 		d, err := json.Marshal(data)
 		if err != nil {
 			return nil, err
@@ -137,36 +160,29 @@ func (vm *VegaVM) RenderPNG(spec []byte, data map[string]interface{}, ctx contex
 
 	vm.gvm.SetFieldNameMapper(goja.UncapFieldNameMapper())
 
-	c, err := mkCanvas()
+	c, err := mkCanvas(vm.PNGResolution.Width, vm.PNGResolution.Height)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to create canvas %w", err)
+	} else if err = initCanvas(vm.gvm, c); err != nil {
+		return nil, err
 	}
 
-	if err := vm.gvm.Set("cxt", c); err != nil {
-		return nil, fmt.Errorf("failed to set ctx object %w", err)
-	}
-
-	r := vm.fn(string(spec), djson)
+	width, height := vm.Config.PNGResolution.Width, vm.Config.PNGResolution.Height
+	r := vm.fn(string(spec), djson, width, height)
 	if r != `true` {
 		return nil, fmt.Errorf(`Expected "true" as return value. Got: %+v`, r)
 	}
 
 	// Response will be nil
-	_, err := vm.res.wait(ctx)
-	if err != nil {
+	if _, err = vm.res.wait(ctx); err != nil {
 		return nil, fmt.Errorf(`Failed to wait for response "true" as return value. Got: %+v`, err)
 	}
 
-	img := c.GetImageData(0, 0, c.Width(), c.Height())
+	img := c.GetImageData(0, 0, c.Canvas.Width(), c.Canvas.Height())
 	w := new(bytes.Buffer)
-	err := png.Encode(w, img)
-	if err != nil {
+	if err := png.Encode(w, img); err != nil {
 		return nil, err
 	}
-
-
-	svg = 
-
 	return w.Bytes(), nil
 }
 
@@ -208,4 +224,46 @@ func (r *resp) wait(ctx context.Context) (res string, err error) {
 		res = r.v
 	}
 	return
+}
+
+func (c *Config) Validate() (err error) {
+	if c == nil {
+		return errors.New("nil config")
+	}
+
+	if c.Logger == nil {
+		//set the default
+		c.Logger = log.Println
+	}
+
+	if c.PNGResolution.IsZero() {
+		c.PNGResolution.Width = defaultWidth
+		c.PNGResolution.Height = defaultHeight
+	} else if err = c.PNGResolution.Validate(); err != nil {
+		return
+	}
+
+	return
+}
+
+func (r Resolution) Validate() (err error) {
+	if r.Width <= 0 {
+		err = errors.New("width is less than zero")
+	} else if r.Height <= 0 {
+		err = errors.New("height is less than zero")
+	}
+	return
+}
+
+func (r Resolution) IsZero() bool {
+	//if either is, it's worthless, consider it zero
+	return r.Width == 0 || r.Height == 0
+}
+
+type console struct {
+	logger func(...interface{})
+}
+
+func (c console) Log(vals ...interface{}) {
+	c.logger(vals...)
 }

@@ -1,4 +1,4 @@
-function makesvg(spec, data) {
+function makesvg(spec, data, width, height) {
   try {
     // If it's a string, parse it. Otherwise it's probably an object and we're good to go.
     const specobj =
@@ -34,7 +34,12 @@ function makesvg(spec, data) {
         }
       }
     }
-
+    if (width > 0) {
+      specobj.width = width
+    }
+    if (height > 0) {
+      specobj.height = height
+    }
     // Create the view
     const view = new vega.View(vega.parse(specobj), { renderer: "none" });
 
@@ -46,18 +51,15 @@ function makesvg(spec, data) {
     // Render the view
     renderPromise
       .then((result) => {
-        log("SUCCESS");
         success(result);
       })
       .catch((err) => {
-        log("PROMISE CATCH", err);
         failure(err.toString());
       })
       .finally(() => {
         view.finalize();
       });
   } catch (err) {
-    log("TRY/CATCH");
     failure(err.toString());
   }
   return true; //return true as a clean completion schedule
