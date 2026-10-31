@@ -1,0 +1,58 @@
+{
+  "$schema": "https://vega.github.io/schema/vega/v6.json",
+  "width": 300,
+  "height": 300,
+  "padding": 5,
+  "autosize": "pad",
+  "signals": [{"name": "innerRadius", "value": 60}],
+  "data": [
+    {
+      "name": "events",
+      "transform": [
+        {"type": "filter", "expr": "datum.bytes > 0 && isValid(datum.proto)"},
+        {"type": "formula", "as": "kb", "expr": "round(datum.bytes / 1024 * 10) / 10"},
+        {"type": "aggregate", "groupby": ["proto"], "fields": ["kb"], "ops": ["sum"], "as": ["total"]},
+        {"type": "pie", "field": "total", "sort": true}
+      ]
+    }
+  ],
+  "scales": [
+    {"name": "color", "type": "ordinal", "domain": {"data": "events", "field": "proto"}, "range": {"scheme": "tableau10"}}
+  ],
+  "legends": [{"fill": "color", "title": "Protocol", "orient": "bottom", "direction": "horizontal"}],
+  "marks": [
+    {
+      "type": "arc",
+      "from": {"data": "events"},
+      "encode": {
+        "enter": {
+          "fill": {"scale": "color", "field": "proto"},
+          "x": {"signal": "width / 2"},
+          "y": {"signal": "height / 2"},
+          "startAngle": {"field": "startAngle"},
+          "endAngle": {"field": "endAngle"},
+          "innerRadius": {"signal": "innerRadius"},
+          "outerRadius": {"signal": "width / 2"},
+          "tooltip": {"signal": "datum.proto + ': ' + format(datum.total, ',.1f') + ' KB'"}
+        }
+      }
+    },
+    {
+      "type": "text",
+      "from": {"data": "events"},
+      "encode": {
+        "enter": {
+          "x": {"signal": "width / 2"},
+          "y": {"signal": "height / 2"},
+          "radius": {"signal": "(innerRadius + width / 2) / 2"},
+          "theta": {"signal": "(datum.startAngle + datum.endAngle) / 2"},
+          "align": {"value": "center"},
+          "baseline": {"value": "middle"},
+          "fill": {"value": "white"},
+          "text": {"signal": "datum.proto + ' (' + format(datum.total, '.0f') + ')'"},
+          "limit": {"value": 80}
+        }
+      }
+    }
+  ]
+}

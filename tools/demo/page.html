@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>govega gallery demo</title>
+<style>
+  :root { color-scheme: only light; }
+  body { font: 14px/1.4 system-ui, sans-serif; margin: 0 16px 48px; color: #222; background: #fff; }
+  h1 { font-size: 20px; margin: 20px 0 4px; }
+  h2 { font-size: 16px; margin: 32px 0 8px; border-top: 1px solid #ddd; padding-top: 16px; }
+  .meta { color: #666; margin-bottom: 16px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid #eee; vertical-align: top; }
+  th { position: sticky; top: 0; background: #fafafa; }
+  td.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  td.desc { color: #555; max-width: 40em; }
+  .waiting { color: #999; }
+  .rendering { color: #b8860b; }
+  .error { color: #b00020; }
+  .ok { color: #1b7f3b; }
+  .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .panel { border: 1px solid #ddd; padding: 8px; background: #fff; overflow: auto; }
+  .panel h3 { font-size: 12px; font-weight: normal; color: #666; margin: 0 0 8px; text-transform: uppercase; letter-spacing: .05em; }
+  .panel img { max-width: 100%; height: auto; display: block; }
+  .panel pre { white-space: pre-wrap; font-size: 12px; }
+  .note { color: #b8860b; font-size: 12px; margin: 4px 0; }
+  .desc p { margin: 0 0 8px; }
+  small { color: #666; }
+</style>
+</head>
+<body>
+<h1>govega gallery demo</h1>
+<p class="meta">govega with Vega {{.Version}} and Vega-Lite {{.Lite}}: <span id="summary"></span></p>
+
+<table id="results">
+<thead>
+<tr><th>#</th><th>Gallery</th><th>Name</th><th>Description</th><th>Render</th><th>Data</th><th>SVG</th></tr>
+</thead>
+<tbody>
+{{range $i, $e := .Examples}}
+<tr data-id="{{$e.ID}}" data-state="{{$e.State}}">
+  <td class="num">{{$i}}</td>
+  <td>{{$e.Gallery}}</td>
+  <td><a href="#{{$e.ID}}">{{$e.Title}}</a><br><small>{{$e.Name}}</small></td>
+  <td class="desc">{{$e.Description}}</td>
+  <td class="num cell-render {{$e.State}}"{{if $e.Logs}} title="{{range $e.Logs}}{{.}}
+{{end}}"{{end}}>{{if eq $e.State "ok"}}{{ms $e.RenderMs}}{{else if eq $e.State "error"}}error{{else}}waiting{{end}}{{if $e.Logs}} ⚠{{end}}</td>
+  <td class="num">{{bytes $e.DataBytes}}</td>
+  <td class="cell-svg">{{if eq $e.State "ok"}}<a href="/svg/{{$e.ID}}.svg" target="_blank">{{bytes $e.SVGBytes}}</a>{{end}}</td>
+</tr>
+{{end}}
+</tbody>
+</table>
+
+{{range $e := .Examples}}
+<section id="{{$e.ID}}" data-id="{{$e.ID}}">
+  <h2>{{$e.Title}} <small>{{$e.Gallery}} · {{$e.Category}} · <a href="{{$e.PageURL}}" target="_blank">{{$e.Name}}</a> · <a href="/spec/{{$e.ID}}.json" target="_blank">spec</a></small></h2>
+  {{if $e.Description}}<div class="desc"><p>{{$e.Description}}</p></div>{{end}}
+  {{range $e.Fetch}}<p class="note">{{.}}</p>{{end}}
+  <div class="compare">
+    <div class="panel panel-ours">
+      <h3>govega</h3>
+      {{if eq $e.State "ok"}}<img src="/svg/{{$e.ID}}.svg" loading="lazy" alt="govega rendering of {{$e.Name}}">
+      {{else if eq $e.State "error"}}<pre class="error">{{$e.Error}}</pre>
+      {{else}}<p class="waiting">waiting…</p>{{end}}
+      {{range $e.Logs}}<p class="note">{{.}}</p>{{end}}
+    </div>
+    <div class="panel">
+      <h3>reference</h3>
+      {{if $e.RefExt}}<img src="/ref/{{$e.ID}}{{$e.RefExt}}" loading="lazy" alt="official image of {{$e.Name}}">
+      {{else}}<p class="waiting">no reference image</p>{{end}}
+    </div>
+  </div>
+</section>
+{{end}}
+
+<script>
+// Poll /status until every example has rendered, updating rows and panels
+// in place so the page need not be reloaded.
+(function () {
+  function fmtMs(ms) { return ms >= 1000 ? (ms / 1000).toFixed(2) + ' s' : Math.round(ms) + ' ms'; }
+  function fmtBytes(n) {
+    if (n >= 1048576) return (n / 1048576).toFixed(1) + ' MB';
+    if (n >= 1024) return (n / 1024).toFixed(1) + ' KB';
+    return n + ' B';
+  }
+  function apply(e) {
+    var row = document.querySelector('tr[data-id="' + e.id + '"]');
+    var sec = document.querySelector('section[data-id="' + e.id + '"]');
+    if (!row || row.dataset.state === e.state) return;
+    row.dataset.state = e.state;
+    var cell = row.querySelector('.cell-render');
+    cell.className = 'num cell-render ' + e.state;
+    var ours = sec.querySelector('.panel-ours');
+    if (e.state === 'ok') {
+      cell.textContent = fmtMs(e.render_ms);
+      row.querySelector('.cell-svg').innerHTML =
+        '<a href="/svg/' + e.id + '.svg" target="_blank">' + fmtBytes(e.svg_bytes) + '</a>';
+      ours.innerHTML = '<h3>govega</h3><img src="/svg/' + e.id + '.svg" loading="lazy" alt="">';
+    } else if (e.state === 'error') {
+      cell.textContent = 'error';
+      ours.innerHTML = '<h3>govega</h3><pre class="error"></pre>';
+      ours.querySelector('pre').textContent = e.error;
+    } else {
+      cell.textContent = e.state;
+    }
+    (e.logs || []).forEach(function (line) {
+      var p = document.createElement('p');
+      p.className = 'note';
+      p.textContent = line;
+      ours.appendChild(p);
+    });
+    if (e.logs && e.logs.length) { cell.textContent += ' ⚠'; cell.title = e.logs.join('\n'); }
+  }
+  function summarize(list) {
+    var ok = 0, err = 0, pending = 0, total = 0;
+    list.forEach(function (e) {
+      if (e.state === 'ok') { ok++; total += e.render_ms; }
+      else if (e.state === 'error') err++;
+      else pending++;
+    });
+    document.getElementById('summary').textContent =
+      list.length + ' examples, ' + ok + ' rendered' + (ok ? ' in ' + fmtMs(total) + ' total' : '') +
+      ', ' + err + ' failed' + (pending ? ', ' + pending + ' pending' : '');
+    return pending > 0;
+  }
+  function tick() {
+    fetch('/status').then(function (r) { return r.json(); }).then(function (list) {
+      list.forEach(apply);
+      if (summarize(list)) setTimeout(tick, 1000);
+    }).catch(function () { setTimeout(tick, 2000); });
+  }
+  tick();
+})();
+</script>
+</body>
+</html>
