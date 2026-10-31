@@ -1,0 +1,44 @@
+{
+  "$schema": "https://vega.github.io/schema/vega/v6.json",
+  "description": "Stacked area chart of population by age band, read from a CSV file through the loader.",
+  "width": 500,
+  "height": 220,
+  "padding": 5,
+  "data": [
+    {
+      "name": "population",
+      "url": "data/population.csv",
+      "format": {"type": "csv", "parse": {"year": "number", "people": "number"}},
+      "transform": [
+        {"type": "stack", "groupby": ["year"], "sort": {"field": "age"}, "field": "people"}
+      ]
+    }
+  ],
+  "scales": [
+    {"name": "x", "type": "point", "range": "width", "domain": {"data": "population", "field": "year"}},
+    {"name": "y", "type": "linear", "range": "height", "nice": true, "zero": true,
+     "domain": {"data": "population", "field": "y1"}},
+    {"name": "color", "type": "ordinal", "range": {"scheme": "blues"},
+     "domain": {"data": "population", "field": "age"}}
+  ],
+  "axes": [
+    {"orient": "bottom", "scale": "x", "format": "d"},
+    {"orient": "left", "scale": "y", "title": "People", "format": "~s"}
+  ],
+  "legends": [{"fill": "color", "title": "Age band"}],
+  "marks": [{
+    "type": "group",
+    "from": {"facet": {"name": "byage", "data": "population", "groupby": "age"}},
+    "marks": [{
+      "type": "area",
+      "from": {"data": "byage"},
+      "encode": {"enter": {
+        "x": {"scale": "x", "field": "year"},
+        "y": {"scale": "y", "field": "y0"},
+        "y2": {"scale": "y", "field": "y1"},
+        "fill": {"scale": "color", "field": "age"},
+        "interpolate": {"value": "monotone"}
+      }}
+    }]
+  }]
+}

@@ -1,0 +1,42 @@
+{
+  "$schema": "https://vega.github.io/schema/vega/v6.json",
+  "width": 500,
+  "height": 200,
+  "padding": 5,
+  "title": {"text": "Requests per host", "anchor": "start"},
+  "data": [
+    {"name": "series", "url": "data/series.csv", "format": {"type": "csv", "parse": {"ts": "date", "value": "number"}}}
+  ],
+  "scales": [
+    {"name": "x", "type": "time", "range": "width", "domain": {"data": "series", "field": "ts"}},
+    {"name": "y", "type": "linear", "range": "height", "nice": true, "zero": true, "domain": {"data": "series", "field": "value"}},
+    {"name": "color", "type": "ordinal", "range": "category", "domain": {"data": "series", "field": "host"}}
+  ],
+  "axes": [
+    {"orient": "bottom", "scale": "x", "labelAngle": -30, "labelAlign": "right", "format": "%H:%M"},
+    {"orient": "left", "scale": "y", "title": "requests"}
+  ],
+  "legends": [{"fill": "color", "title": "Host", "orient": "right"}],
+  "marks": [
+    {
+      "type": "group",
+      "from": {"facet": {"name": "byhost", "data": "series", "groupby": "host"}},
+      "marks": [
+        {
+          "type": "line",
+          "from": {"data": "byhost"},
+          "encode": {
+            "enter": {
+              "x": {"scale": "x", "field": "ts"},
+              "y": {"scale": "y", "field": "value"},
+              "stroke": {"scale": "color", "field": "host"},
+              "strokeWidth": {"value": 2},
+              "interpolate": {"value": "monotone"},
+              "defined": {"signal": "isValid(datum.value)"}
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

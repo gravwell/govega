@@ -1,0 +1,176 @@
+<!doctype html>
+<!--
+  Copyright (c) 2026, Gravwell, Inc.
+  All rights reserved.
+
+  Use of this source code is governed by a BSD 2-Clause license that can be
+  found in the LICENSE file.
+-->
+<meta charset="utf-8">
+<title>govega comparison harness</title>
+<script src="/vega.min.js"></script>
+<script src="/extra.js"></script>
+<body style="font-family:sans-serif">
+<pre id="log"></pre>
+<script>
+(async function () {
+  const logEl = document.getElementById('log');
+  function log(msg) {
+    logEl.textContent += msg + '\n';
+    fetch('/log', { method: 'POST', body: msg }).catch(() => {});
+  }
+  window.onerror = (m, src, line) => log('error: ' + m + ' @' + line);
+
+  function svgSize(svg) {
+    const m = /<svg[^>]*\swidth="([\d.]+)"[^>]*\sheight="([\d.]+)"/.exec(svg);
+    return m ? { w: +m[1], h: +m[2] } : { w: 0, h: 0 };
+  }
+
+  // raster draws an SVG string into a white canvas of the given size.
+  async function raster(svg, w, h, scale) {
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(w * scale));
+    c.height = Math.max(1, Math.round(h * scale));
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, c.width, c.height);
+    if (svg) {
+      const blob = new Blob([svg], { type: 'image/svg+xml' });
+      const url = URL.createObjectURL(blob);
+      try {
+        const img = new Image();
+        img.src = url;
+        await img.decode();
+        const s = svgSize(svg);
+        ctx.drawImage(img, 0, 0, s.w * scale, s.h * scale);
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    }
+    return c;
+  }
+
+  // gray converts a canvas to a blurred, 2x downsampled grayscale array.
+  function gray(c) {
+    const { width: w, height: h } = c;
+    const d = c.getContext('2d').getImageData(0, 0, w, h).data;
+    const g = new Float32Array(w * h);
+    for (let i = 0, j = 0; i < d.length; i += 4, j++) {
+      g[j] = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+    }
+    // 3x3 box blur.
+    const b = new Float32Array(w * h);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        let s = 0, n = 0;
+        for (let dy = -1; dy <= 1; dy++) {
+          const yy = y + dy; if (yy < 0 || yy >= h) continue;
+          for (let dx = -1; dx <= 1; dx++) {
+            const xx = x + dx; if (xx < 0 || xx >= w) continue;
+            s += g[yy * w + xx]; n++;
+          }
+        }
+        b[y * w + x] = s / n;
+      }
+    }
+    // Downsample by 2.
+    const w2 = Math.max(1, w >> 1), h2 = Math.max(1, h >> 1);
+    const o = new Float32Array(w2 * h2);
+    for (let y = 0; y < h2; y++) {
+      for (let x = 0; x < w2; x++) {
+        o[y * w2 + x] = (b[(2 * y) * w + 2 * x] + b[(2 * y) * w + 2 * x + 1] +
+          b[(2 * y + 1) * w + 2 * x] + b[(2 * y + 1) * w + 2 * x + 1]) / 4;
+      }
+    }
+    return { g: o, w: w2, h: h2 };
+  }
+
+  // compare returns the mean SSIM (8x8 windows, stride 4) and the fraction of
+  // pixels within 16 intensity levels.
+  function compare(A, B) {
+    const { g: a, w, h } = A, b = B.g;
+    const C1 = (0.01 * 255) ** 2, C2 = (0.03 * 255) ** 2;
+    let ssimSum = 0, windows = 0;
+    const W = 8, S = 4;
+    for (let y = 0; y + W <= h; y += S) {
+      for (let x = 0; x + W <= w; x += S) {
+        let ma = 0, mb = 0;
+        for (let j = 0; j < W; j++) for (let i = 0; i < W; i++) {
+          const k = (y + j) * w + x + i; ma += a[k]; mb += b[k];
+        }
+        ma /= W * W; mb /= W * W;
+        let va = 0, vb = 0, cov = 0;
+        for (let j = 0; j < W; j++) for (let i = 0; i < W; i++) {
+          const k = (y + j) * w + x + i;
+          va += (a[k] - ma) ** 2; vb += (b[k] - mb) ** 2; cov += (a[k] - ma) * (b[k] - mb);
+        }
+        va /= W * W - 1; vb /= W * W - 1; cov /= W * W - 1;
+        ssimSum += ((2 * ma * mb + C1) * (2 * cov + C2)) / ((ma * ma + mb * mb + C1) * (va + vb + C2));
+        windows++;
+      }
+    }
+    let close = 0;
+    for (let k = 0; k < a.length; k++) if (Math.abs(a[k] - b[k]) <= 16) close++;
+    return { ssim: windows ? ssimSum / windows : 1, pixel: 100 * close / a.length };
+  }
+
+  function withTimeout(p, ms, what) {
+    return Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(what + ' timed out')), ms))]);
+  }
+
+  const manifest = await (await fetch('/manifest.json')).json();
+  for (const ex of manifest.examples) {
+    const res = { name: ex.name, scored: false, note: '' };
+    let refSvg = '', ourSvg = '';
+    try {
+      const spec = await (await fetch('/specs/' + ex.name + '.vg.json')).json();
+      const t0 = performance.now();
+      if (manifest.seed) { vega.setRandom(vega.randomLCG(manifest.seed)); }
+      const view = new vega.View(vega.parse(spec), {
+        renderer: 'none',
+        loader: vega.loader({ baseURL: location.origin + '/' }),
+        logLevel: vega.Error
+      });
+      refSvg = await withTimeout(view.toSVG(), 120000, 'reference render');
+      res.refMs = performance.now() - t0;
+      view.finalize();
+      res.refSvg = refSvg;
+    } catch (e) {
+      res.refError = String(e && e.message || e);
+    }
+    if (ex.ok) {
+      ourSvg = await (await fetch('/ours/' + ex.name + '.svg')).text();
+    }
+    try {
+      const rs = svgSize(refSvg), os_ = svgSize(ourSvg);
+      res.refW = rs.w; res.refH = rs.h; res.ourW = os_.w; res.ourH = os_.h;
+      if (refSvg && ourSvg) {
+        const w = Math.max(rs.w, os_.w), h = Math.max(rs.h, os_.h);
+        const scale = Math.min(1, 1600 / Math.max(w, h));
+        const [ca, cb] = [await raster(refSvg, w, h, scale), await raster(ourSvg, w, h, scale)];
+        const cmp = compare(gray(ca), gray(cb));
+        res.score = Math.round(1000 * Math.max(0, cmp.ssim)) / 10;
+        res.pixelMatch = Math.round(10 * cmp.pixel) / 10;
+        res.scored = true;
+        if (Math.abs(rs.w - os_.w) > 1 || Math.abs(rs.h - os_.h) > 1) {
+          res.note = 'size ' + os_.w + 'x' + os_.h + ' vs ' + rs.w + 'x' + rs.h;
+        }
+        res.refPng = ca.toDataURL('image/png');
+        res.ourPng = cb.toDataURL('image/png');
+      } else if (refSvg) {
+        const s = Math.min(1, 1600 / Math.max(rs.w, rs.h));
+        res.refPng = (await raster(refSvg, rs.w, rs.h, s)).toDataURL('image/png');
+      } else if (ourSvg) {
+        const s = Math.min(1, 1600 / Math.max(os_.w, os_.h));
+        res.ourPng = (await raster(ourSvg, os_.w, os_.h, s)).toDataURL('image/png');
+      }
+    } catch (e) {
+      res.note = 'comparison failed: ' + String(e && e.message || e);
+    }
+    await fetch('/result/' + ex.name, { method: 'POST', body: JSON.stringify(res) });
+    log(ex.name + ' done');
+  }
+  await fetch('/done', { method: 'POST' });
+  log('all done');
+})();
+</script>
