@@ -443,7 +443,7 @@ func parseExamplePage(md []byte) (title, desc string) {
 		s = s[i+4:]
 	}
 	s = liquidTag.ReplaceAllString(s, "")
-	for _, para := range strings.Split(s, "\n\n") {
+	for para := range strings.SplitSeq(s, "\n\n") {
 		para = strings.TrimSpace(para)
 		if para != "" && !strings.HasPrefix(para, "<") {
 			desc = plainText(para)
@@ -534,7 +534,7 @@ func renderAll(examples []*example, jobs int, timeout time.Duration) error {
 	queue := make(chan *example)
 	var wg sync.WaitGroup
 	start := time.Now()
-	for i := 0; i < jobs; i++ {
+	for range jobs {
 		var cur *example
 		r, err := govega.New(
 			govega.WithLoader(loader),
@@ -549,15 +549,13 @@ func renderAll(examples []*example, jobs int, timeout time.Duration) error {
 		if err != nil {
 			return err
 		}
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for ex := range queue {
 				cur = ex
 				renderOne(r, ex)
 				cur = nil
 			}
-		}()
+		})
 	}
 	for _, ex := range examples {
 		queue <- ex
