@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+# The library is pure Go; every step builds and tests without cgo so that a
+# change that quietly introduced a C dependency would fail here.
+env:
+  CGO_ENABLED: "0"
+
+jobs:
+  checks:
+    name: Lint, vulnerabilities and tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Go (version from go.mod)
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      - name: go mod tidy leaves go.mod and go.sum unchanged
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+
+      - name: go fmt is clean
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "These files need gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go fix is clean
+        run: |
+          go fix ./...
+          git diff --exit-code
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: govulncheck finds no vulnerabilities
+        run: govulncheck ./...
+
+      - name: Unit tests
+        run: go test ./...
